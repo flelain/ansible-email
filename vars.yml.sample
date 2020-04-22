@@ -1,0 +1,9 @@
+---
+mariadb_root_password: blabla
+mariadb_socket: /var/run/mysqld/mysqld.sock
+mariadb_mailadmin_password: toto
+mariadb_mailserver_password: tutu
+rspamd_web_password: blop
+rspamd_dkim_selector_map:
+  - domain: example.org
+    selector: 2020042101

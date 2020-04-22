@@ -1,0 +1,90 @@
+myhostname = {{server_name}}
+mynetworks =
+mail_name = mail server
+
+# biff is a tool to notify users when new mails are incoming
+# this is useless for us
+biff = no
+
+# appending .domain is the MUA's job not the MTA.
+append_dot_mydomain = no
+
+readme_directory = no
+
+# we use . as a delimiter on our side
+recipient_delimiter = .
+
+# See http://www.postfix.org/COMPATIBILITY_README.html -- default to 2 on
+# fresh installs.
+compatibility_level = 2
+
+# Empty alias_map to disable a warning in logs
+alias_maps =
+
+# On utilise uniquement des virtual domains
+# Voir http://www.postfix.com/VIRTUAL_README.html
+# Et c'est dovecot qui gere les mailboxes
+virtual_transport = lmtp:unix:private/dovecot-lmtp
+virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-mailbox-domains.cf
+virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox-maps.cf
+virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-alias-maps.cf
+
+# TLS parameters
+# SMTP = client qui envoit les mails
+# SMTPD = server qui recoit les mails
+smtp_tls_security_level = may
+smtpd_tls_security_level = may
+smtpd_tls_auth_only = yes
+smtpd_tls_key_file = /etc/letsencrypt/live/{{server_name}}/privkey.pem
+smtpd_tls_cert_file = /etc/letsencrypt/live/{{server_name}}/cert.pem
+smtpd_tls_CAfile = /etc/letsencrypt/live/{{server_name}}/chain.pem
+
+# Enable SASL Auth using Dovecot
+# See https://wiki.dovecot.org/HowTo/PostfixAndDovecotSASL
+# We can use cyrus or dovecot for SASL, dovecot seems better (and we use it for IMAP anyway)
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_authenticated_header = yes
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+
+# SMTP restrictions (block bogus stuff)
+# Force client to be polite
+# and allow only authenticated users
+#smtpd_client_restrictions =
+#  permit_sasl_authenticated,
+#  reject,
+
+# Pour touts les autres restrictions, je ne suis pas sur qu'elles
+# soit necessaires, car la smtpd_client_restrictions semble etre la premiere
+# pour toutes les communications
+#smtpd_helo_required = yes
+#smtpd_helo_restrictions =
+#  permit_sasl_authenticated,
+#  reject,
+
+#smtpd_sender_restrictions =
+#  permit_sasl_authenticated,
+#  reject,
+
+# Check user quota before trying to deliver mail
+smtpd_recipient_restrictions =
+  reject_unauth_destination,
+  check_policy_service unix:private/quota-status,
+
+# Disable ETRN command
+# Nobody use that
+smtpd_etrn_restrictions =
+  reject,
+
+# DKIM, on utilise opendkim
+# TODO
+#milter_default_action = accept
+#milter_protocol = 6
+#smtpd_milters = inet:127.0.0.1:8891
+#non_smtpd_milters = $smtpd_milters
+
+# Milters
+# rspamd
+smtpd_milters = inet:127.0.0.1:11332
+non_smtpd_milters = inet:127.0.0.1:11332
+milter_mail_macros = "i {mail_addr} {client_addr} {client_name} {auth_authen}"

@@ -1,0 +1,554 @@
+---
+- name: install packages
+  apt:
+    name: ['mailutils', 'postfix', 'postfix-mysql', 'certbot', 'dovecot-imapd', 'dovecot-lmtpd', 'dovecot-managesieved', 'dovecot-mysql', 'rspamd', 'pwgen', 'swaks', 'mutt', 'ca-certificates', 'apache2', 'php', 'php-curl', 'php-xml', 'mariadb-server', 'adminer', 'mycli', 'unzip', 'dnsutils']
+    state: latest
+  tags: packages
+
+#
+# Apache
+#
+# NOTE: we use apache2 instead of nginx because mailpile installation is easier on apache2
+
+- name: enable apache2 required modules
+  apache2_module:
+    state: present
+    name: "{{item}}"
+  loop:
+    - rewrite
+    - ssl
+    - proxy_http
+  notify:
+    - restart apache2
+  tags: apache2
+
+- name: creates apache2 folder
+  file:
+    path: /var/www/{{server_name}}
+    state: directory
+  tags: apache2
+
+- name: disable default vhosts
+  command:
+    cmd: a2dissite 000-default
+    removes: /etc/apache2/sites-enabled/000-default.conf
+  tags: apache2
+
+- name: creates apache2 vhosts
+  template:
+    src: ./config/apache2/{{item.src}}
+    dest: /etc/apache2/sites-available/{{item.dest}}
+    owner: root
+    group: root
+    mode: 0644
+  loop:
+    - { src: "server.conf", dest: "{{server_name}}.conf" }
+    - { src: "server-ssl.conf", dest: "{{server_name}}-ssl.conf" }
+  notify:
+    - restart apache2
+  tags: apache2
+
+- name: enable apache2 vhost port 80
+  command:
+    cmd: a2ensite {{ server_name }}
+    creates: /etc/apache2/sites-enabled/{{ server_name }}.conf
+  register: result
+  tags: apache2
+
+- name: reload apache2
+  command:
+    cmd: systemctl reload apache2
+  when: result.changed
+  tags: apache2
+
+- name: grab letsencrypt certificate
+  shell:
+    cmd: certbot certonly -n --agree-tos --email {{certbot_mail}} --webroot --webroot-path /var/www/{{server_name}} -d {{server_name}}
+    creates: /etc/letsencrypt/live/{{server_name}}/fullchain.pem
+  tags: apache2
+
+- name: configure letsencrypt post-hook
+  lineinfile:
+    path: /etc/letsencrypt/cli.ini
+    regexp: '^post-hook'
+    line: post-hook = systemctl restart postfix ; systemctl restart dovecot ; systemctl restart apache2
+  tags: apache2
+
+- name: enable apache2 vhost port 443
+  command:
+    cmd: a2ensite {{ server_name }}-ssl
+    creates: /etc/apache2/sites-enabled/{{ server_name }}-ssl.conf
+  notify:
+    - restart apache2
+  tags: apache2
+
+- name: configure fail2ban for apache2
+  blockinfile:
+    create: yes
+    path: /etc/fail2ban/jail.local
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - apache-auth"
+    block: |
+      [apache-auth]
+      enabled = true
+  notify: restart fail2ban
+  tags:
+    - apache2
+    - fail2ban
+
+#
+# Rainloop
+#
+- name: download rainloop artifact
+  get_url:
+    url: https://www.rainloop.net/repository/webmail/rainloop-community-latest.zip
+    dest: /root/
+  tags: rainloop
+
+- name: unzip rainloop artifact
+  unarchive:
+    src: /root/rainloop-community-latest.zip
+    dest: /var/www/{{server_name}}
+    remote_src: yes
+    owner: www-data
+    group: www-data
+  tags: rainloop
+
+# NOTE: rainloop config has been done manually on
+# https://{{server_name}}/?admin
+# Read https://www.rainloop.net/docs/configuration/
+# for more info
+
+#
+# MariaDB
+#
+# This command will fail when the root password was set previously
+- name: check if MariaDB root password is set
+  shell: >
+    mysqladmin -u root status
+  changed_when: false
+  failed_when: false
+  register: root_pwd_check
+  tags: mariadb
+
+- name: set MariaDB root password for the first time (root@localhost)
+  mysql_user:
+    name: root
+    password: "{{ mariadb_root_password }}"
+    host: localhost
+    login_unix_socket: "{{ mariadb_socket }}"
+    state: present
+  when: root_pwd_check.rc == 0
+  tags: mariadb
+
+- name: set MariaDB root password for 127.0.0.1, ::1
+  mysql_user:
+    name: root
+    password: "{{ mariadb_root_password }}"
+    host: "{{ item }}"
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_unix_socket: "{{ mariadb_socket }}"
+    state: present
+  with_items:
+    - ::1
+    - 127.0.0.1
+  when: root_pwd_check.rc == 0
+  tags: mariadb
+
+- name: removes all anonymous user accounts
+  mysql_user:
+    name: ''
+    host_all: yes
+    state: absent
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_unix_socket: "{{ mariadb_socket }}"
+  tags: mariadb
+
+- name: create mailserver database
+  mysql_db:
+    name:
+      - mailserver
+    state: present
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_unix_socket: "{{ mariadb_socket }}"
+  tags: mariadb
+
+- name: create mailadmin user (read write)
+  mysql_user:
+    name: mailadmin
+    password: "{{mariadb_mailadmin_password}}"
+    priv: 'mailserver.*:ALL'
+    host: 'localhost'
+    state: present
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_unix_socket: "{{ mariadb_socket }}"
+  tags: mariadb
+
+- name: create mailserver user (read only)
+  mysql_user:
+    name: mailserver
+    password: "{{mariadb_mailserver_password}}"
+    priv: 'mailserver.*:SELECT'
+    host: '127.0.0.1'
+    state: present
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    login_unix_socket: "{{ mariadb_socket }}"
+  tags: mariadb
+
+# NOTE: data injection in DB has been done manually using adminer / mycli
+
+#
+# Postfix
+#
+- name: virtual_mailbox_domains configuration
+  template:
+    src: ./config/postfix/mysql-virtual-mailbox-domains.cf
+    dest: /etc/postfix/mysql-virtual-mailbox-domains.cf
+    owner: root
+    group: postfix
+    mode: 0640
+  notify:
+    - restart postfix
+  tags: postfix
+
+- name: virtual_mailbox_maps configuration
+  template:
+    src: ./config/postfix/mysql-virtual-mailbox-maps.cf
+    dest: /etc/postfix/mysql-virtual-mailbox-maps.cf
+    owner: root
+    group: postfix
+    mode: 0640
+  notify:
+    - restart postfix
+  tags: postfix
+
+- name: virtual_alias_maps configuration
+  template:
+    src: ./config/postfix/mysql-virtual-alias-maps.cf
+    dest: /etc/postfix/mysql-virtual-alias-maps.cf
+    owner: root
+    group: postfix
+    mode: 0640
+  notify:
+    - restart postfix
+  tags: postfix
+
+- name: configure postfix
+  template:
+    src: ./config/postfix/{{item}}
+    dest: /etc/postfix/{{item}}
+    owner: root
+    group: postfix
+    mode: 0640
+  loop:
+    - main.cf
+    - master.cf
+  notify:
+    - restart postfix
+  tags: postfix
+
+- name: configure fail2ban for postfix
+  blockinfile:
+    create: yes
+    path: /etc/fail2ban/jail.local
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - postfix"
+    block: |
+      [postfix]
+      enabled = true
+  notify: restart fail2ban
+  tags:
+    - postfix
+    - fail2ban
+
+#
+# Dovecot
+#
+- name: create vmail group
+  group:
+    name: vmail
+    gid: 5000
+    state: present
+  tags: dovecot
+
+- name: create vmail user
+  user:
+    name: vmail
+    uid: 5000
+    group: vmail
+    home: /var/vmail
+  tags: dovecot
+
+- name: configure dovecot
+  lineinfile:
+    path: /etc/dovecot/conf.d/{{item.path}}
+    regexp: "{{item.regexp}}"
+    line: "{{item.line}}"
+  loop:
+    - { path: "10-auth.conf", regexp: "^auth_mechanisms =", line: "auth_mechanisms = plain login" }
+    - { path: "10-auth.conf", regexp: "auth-system.conf.ext", line: "#!include auth-system.conf.ext" }
+    - { path: "10-auth.conf", regexp: "auth-sql.conf.ext", line: "!include auth-sql.conf.ext" }
+    - { path: "10-mail.conf", regexp: "^mail_location =", line: "mail_location = maildir:~/Maildir" }
+    - { path: "10-mail.conf", regexp: "^#mail_plugins =", line: "mail_plugins = quota" }
+    - { path: "10-ssl.conf", regexp: "^ssl_cert =", line: "ssl_cert = </etc/letsencrypt/live/{{server_name}}/fullchain.pem" }
+    - { path: "10-ssl.conf", regexp: "^ssl_key =", line: "ssl_key = </etc/letsencrypt/live/{{server_name}}/privkey.pem" }
+    - { path: "10-ssl.conf", regexp: "^ssl =", line: "ssl = required" }
+    - { path: "15-lda.conf", regexp: "^#recipient_delimiter =", line: "recipient_delimiter = ." }
+    - { path: "90-sieve.conf", regexp: "^  #sieve_after =", line: "  sieve_after = /etc/dovecot/sieve-after" }
+    - { path: "20-imap.conf", regexp: "^  #mail_plugins =", line: "  mail_plugins = $mail_plugins imap_sieve" }
+  notify: restart dovecot
+  tags: dovecot
+
+- name: configure dovecot to communicate with postfix - auth
+  blockinfile:
+    path: /etc/dovecot/conf.d/10-master.conf
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - auth"
+    insertafter: "service auth {"
+    block: |
+      # Postfix smtp-auth
+      unix_listener /var/spool/postfix/private/auth {
+        mode = 0660
+        user = postfix
+        group = postfix
+      }
+  notify: restart dovecot
+  tags: dovecot
+
+- name: configure dovecot to communicate with postfix - lmtp
+  blockinfile:
+    path: /etc/dovecot/conf.d/10-master.conf
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - lmtp"
+    insertafter: "service lmtp {"
+    block: |
+      unix_listener /var/spool/postfix/private/dovecot-lmtp {
+        mode = 0600
+        user = postfix
+        group = postfix
+      }
+  notify: restart dovecot
+  tags: dovecot
+
+- name: enable sieve plugin in dovecot
+  blockinfile:
+    path: /etc/dovecot/conf.d/20-lmtp.conf
+    insertafter: "protocol lmtp {"
+    block: |
+      mail_plugins = $mail_plugins sieve
+  notify: restart dovecot
+  tags: dovecot
+
+- name: enable imapsieve plugins to learn from spam
+  blockinfile:
+    path: /etc/dovecot/conf.d/90-sieve.conf
+    insertafter: "plugin {"
+    block: |
+      # From elsewhere to Junk folder
+      imapsieve_mailbox1_name = Junk
+      imapsieve_mailbox1_causes = COPY
+      imapsieve_mailbox1_before = file:/etc/dovecot/sieve/learn-spam.sieve
+      # From Junk folder to elsewhere
+      imapsieve_mailbox2_name = *
+      imapsieve_mailbox2_from = Junk
+      imapsieve_mailbox2_causes = COPY
+      imapsieve_mailbox2_before = file:/etc/dovecot/sieve/learn-ham.sieve
+      sieve_pipe_bin_dir = /etc/dovecot/sieve
+      sieve_global_extensions = +vnd.dovecot.pipe
+      sieve_plugins = sieve_imapsieve sieve_extprograms
+  notify: restart dovecot
+  tags: dovecot
+
+- name: creates sieve folders
+  copy:
+    src: ./config/dovecot/{{item}}
+    dest: /etc/dovecot/
+    mode: 0700
+    owner: vmail
+    group: vmail
+  loop:
+    - sieve
+    - sieve-after
+  register: result
+  tags: dovecot
+
+- name: temporary restart dovecot to compile sieve scripts
+  when: result.changed
+  service:
+    name: dovecot
+    state: restarted
+  tags: dovecot
+
+- name: compile sieve scripts
+  when: result.changed
+  shell:
+    cmd: find /etc/dovecot/ -name '*.sieve' -exec sievec {} \;
+  notify: restart dovecot
+  tags: dovecot
+
+- name: set correct mode for compiled sieve scripts
+  when: result.changed
+  shell:
+    cmd: find /etc/dovecot/ -name '*.svbin' -exec chown vmail:vmail {} \;
+  notify: restart dovecot
+  tags: dovecot
+
+- name: configure dovecot quotas plugin
+  blockinfile:
+    path: /etc/dovecot/conf.d/90-quota.conf
+    block: |
+      plugin {
+        quota = maildir:User quota
+
+        quota_status_success = DUNNO
+        quota_status_nouser = DUNNO
+        quota_status_overquota = "452 4.2.2 Mailbox is full and cannot receive any more emails"
+      }
+      service quota-status {
+        executable = /usr/lib/dovecot/quota-status -p postfix
+        unix_listener /var/spool/postfix/private/quota-status {
+          user = postfix
+        }
+      }
+      plugin {
+         quota_warning = storage=95%% quota-warning 95 %u
+         quota_warning2 = storage=80%% quota-warning 80 %u
+         quota_warning3 = -storage=100%% quota-warning below %u
+      }
+      service quota-warning {
+         executable = script /usr/local/bin/quota-warning.sh
+         unix_listener quota-warning {
+           group = dovecot
+           mode = 0660
+         }
+       }
+  notify: restart dovecot
+  tags: dovecot
+
+- name: create quota-warning.sh script
+  template:
+    src: ./config/dovecot/quota-warning.sh
+    dest: /usr/local/bin/
+    owner: root
+    group: root
+    mode: 0755
+  tags: dovecot
+
+- name: configure dovecot connection to mariadb
+  blockinfile:
+    path: /etc/dovecot/dovecot-sql.conf.ext
+    block: |
+      driver = mysql
+      connect = host=127.0.0.1 dbname=mailserver user=mailserver password={{mariadb_mailserver_password}}
+      user_query = SELECT email as user, \
+        concat('*:bytes=', quota) AS quota_rule, \
+        '/var/vmail/%d/%n' AS home, \
+        5000 AS uid, 5000 AS gid \
+        FROM virtual_users WHERE email='%u'
+      password_query = SELECT password FROM virtual_users WHERE email='%u'
+      iterate_query = SELECT email AS user FROM virtual_users
+    owner: root
+    group: root
+    mode: 0600
+  notify: restart dovecot
+  tags: dovecot
+
+- name: configure fail2ban for dovecot
+  blockinfile:
+    create: yes
+    path: /etc/fail2ban/jail.local
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - dovecot"
+    block: |
+      [dovecot]
+      enabled = true
+      port = imap2,imaps,submission,465,sieve
+  notify: restart fail2ban
+  tags:
+    - dovecot
+    - fail2ban
+
+#
+# Rspamd
+#
+- name: configure rspamd
+  copy:
+    src: ./config/rspamd/override.d/
+    dest: /etc/rspamd/override.d/
+  notify:
+    - restart rspamd
+  tags: rspamd
+
+- name: configure rspamd web interface
+  template:
+    src: ./config/rspamd/local.d/worker-controller.inc
+    dest: /etc/rspamd/local.d/worker-controller.inc
+  notify:
+    - restart rspamd
+  tags: rspamd
+
+- name: download d3 artifact (to fix rspamd debian bug 918027)
+  get_url:
+    url: https://github.com/d3/d3/releases/download/v5.15.0/d3.zip
+    dest: /root/
+  tags: rspamd
+
+- name: unzip d3 artifact
+  unarchive:
+    src: /root/d3.zip
+    dest: /usr/share/rspamd/www/js/lib
+    remote_src: yes
+  tags: rspamd
+
+- name: create dkim dir
+  file:
+    path: /var/lib/rspamd/dkim
+    state: directory
+    owner: _rspamd
+    group: _rspamd
+  tags: rspamd
+
+# NOTE: the DNS file will be located in /var/lib/rspamd/dkim/
+- name: create dkim keys
+  shell:
+    cmd: >
+      rspamadm dkim_keygen
+      -d {{item.domain}}
+      -s {{item.selector}}
+      -k /var/lib/rspamd/dkim/{{item.domain}}.{{item.selector}}.key
+      > /var/lib/rspamd/dkim/{{item.domain}}.{{item.selector}}.dns
+    creates: /var/lib/rspamd/dkim/{{item.domain}}.{{item.selector}}.key
+  loop: "{{rspamd_dkim_selector_map}}"
+  register: result
+  tags: rspamd
+
+- name: set correct mode for dkim keys
+  when: result.changed
+  shell:
+    cmd: find /var/lib/rspamd/dkim/ -name '*.key' -exec chown _rspamd:_rspamd {} \; -exec chmod u=r,go= {} \;
+  tags: rspamd
+
+- name: tell user where to find the DNS lines to configure
+  debug:
+    msg: "The DNS line for {{item.domain}} is in file: /var/lib/rspamd/dkim/{{item.domain}}.{{item.selector}}.dns"
+  loop: "{{rspamd_dkim_selector_map}}"
+  tags: rspamd
+
+- name: configure rspamd dkim_signing.conf
+  template:
+    src: ./config/rspamd/local.d/dkim_signing.conf
+    dest: /etc/rspamd/local.d/dkim_signing.conf
+  notify:
+    - restart rspamd
+  tags: rspamd
+
+- name: add domain in selector map
+  lineinfile:
+    path: /etc/rspamd/dkim_selectors.map
+    regexp: "^{{item.domain}} "
+    line: "{{item.domain}} {{item.selector}}"
+    create: yes
+  loop: "{{rspamd_dkim_selector_map}}"
+  notify:
+    - restart rspamd
+  tags: rspamd

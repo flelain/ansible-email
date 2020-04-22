@@ -1,0 +1,58 @@
+---
+- name: remove cloud-init
+  apt:
+    name: ['cloud-init']
+    state: absent
+    purge: true
+  tags: base
+
+- name: install tmux
+  apt:
+    name: ['tmux']
+    state: latest
+  tags: base
+
+- name: copy tmux.conf
+  template:
+    src: ./config/tmux.conf
+    dest: /root/.tmux.conf
+    owner: root
+    group: root
+    mode: 0644
+  tags: base
+
+- name: copy vimrc for root user
+  template:
+    src: ./config/vimrc
+    dest: /root/.vimrc
+    owner: root
+    group: root
+    mode: 0644
+  tags: base
+
+- name: install fail2ban
+  apt:
+    name: ['fail2ban']
+    state: latest
+  tags: base
+
+- name: start fail2ban
+  service:
+    name: "{{item}}"
+    state: started
+  with_items:
+    - "fail2ban"
+  tags: base
+
+- name: install mosh
+  apt:
+    name: ['mosh']
+    state: latest
+  tags: base
+
+- name: install multitail
+  apt:
+    name: ['multitail']
+    state: latest
+  tags: base
+
