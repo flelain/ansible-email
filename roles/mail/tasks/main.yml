@@ -1,7 +1,7 @@
 ---
 - name: install packages
   apt:
-    name: ['mailutils', 'postfix', 'postfix-mysql', 'certbot', 'dovecot-imapd', 'dovecot-lmtpd', 'dovecot-managesieved', 'dovecot-mysql', 'rspamd', 'pwgen', 'swaks', 'mutt', 'ca-certificates', 'apache2', 'php', 'php-curl', 'php-xml', 'mariadb-server', 'adminer', 'mycli', 'unzip', 'dnsutils']
+    name: ['mailutils', 'postfix', 'postfix-mysql', 'certbot', 'dovecot-imapd', 'dovecot-lmtpd', 'dovecot-managesieved', 'dovecot-mysql', 'rspamd', 'pwgen', 'swaks', 'mutt', 'ca-certificates', 'apache2', 'php', 'php-curl', 'php-xml', 'mariadb-server', 'adminer', 'mycli', 'unzip', 'dnsutils', 'radicale', 'ed', 'ccze']
     state: latest
   tags: packages
 
@@ -18,6 +18,10 @@
     - rewrite
     - ssl
     - proxy_http
+    - headers
+    - expires
+    - mime
+    - deflate
   notify:
     - restart apache2
   tags: apache2
@@ -94,7 +98,6 @@
   tags:
     - apache2
     - fail2ban
-
 #
 # Rainloop
 #
@@ -117,6 +120,59 @@
 # https://{{server_name}}/?admin
 # Read https://www.rainloop.net/docs/configuration/
 # for more info
+
+#
+# Radicale
+#
+- name: configure radicale
+  ini_file:
+    path: /etc/radicale/config
+    section: "{{item.section}}"
+    option: "{{item.option}}"
+    value: "{{item.value}}"
+  with_items:
+    - { section: "server", option: "daemon", value: "True" }
+    - { section: "server", option: "pid", value: "/var/run/radicale.pid" }
+    - { section: "auth", option: "type", value: "http_x_remote_user" }
+  notify:
+    - restart radicale
+  tags: radicale
+
+#
+# InfCloud (web interface for caldav/carddav)
+#
+- name: download infcloud artifact
+  get_url:
+    url: https://www.inf-it.com/InfCloud_0.13.1.zip
+    dest: /root/
+  tags: infcloud
+
+- name: unzip infcloud artifact
+  unarchive:
+    src: /root/InfCloud_0.13.1.zip
+    dest: /var/www/{{server_name}}
+    remote_src: yes
+    owner: www-data
+    group: www-data
+  tags: infcloud
+
+- name: create a symbolic link cal/ to infcloud/
+  file:
+    src: /var/www/{{server_name}}/infcloud
+    dest: /var/www/{{server_name}}/cal
+    owner: www-data
+    group: www-data
+    state: link
+  tags: infcloud
+
+- name: configure infcloud
+  lineinfile:
+    path: /var/www/{{server_name}}/infcloud/config.js
+    regexp: "{{item.regexp}}"
+    line: "{{item.line}}"
+  loop:
+    - { regexp: "^		'/caldav.php/',$", line: "		'/radicale/'," }
+  tags: infcloud
 
 #
 # MariaDB
@@ -175,6 +231,58 @@
     login_unix_socket: "{{ mariadb_socket }}"
   tags: mariadb
 
+- name: copy sql tables files
+  copy:
+    src: ./config/mariadb/{{item}}.sql
+    dest: /tmp/
+  loop:
+    - virtual_aliases
+    - virtual_domains
+    - virtual_users
+  tags: mariadb
+
+- name: check if virtual_aliases table is created
+  command:
+    cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' --execute='DESC virtual_aliases' mailserver
+  changed_when: false
+  failed_when: false
+  register: mariadb_virtual_aliases
+  tags: mariadb
+
+- name: create virtual_aliases table
+  when: mariadb_virtual_aliases.rc != 0
+  command:
+    cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' < /tmp/virtual_aliases.sql
+  tags: mariadb
+
+- name: check if virtual_domains table is created
+  command:
+    cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' --execute='DESC virtual_domains' mailserver
+  changed_when: false
+  failed_when: false
+  register: mariadb_virtual_domains
+  tags: mariadb
+
+- name: create virtual_domains table
+  when: mariadb_virtual_domains.rc != 0
+  command:
+    cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' < /tmp/virtual_domains.sql
+  tags: mariadb
+
+- name: check if virtual_users table is created
+  command:
+    cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' --execute='DESC virtual_users' mailserver
+  changed_when: false
+  failed_when: false
+  register: mariadb_virtual_users
+  tags: mariadb
+
+- name: create virtual_users table
+  when: mariadb_virtual_users.rc != 0
+  command:
+    cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' < /tmp/virtual_users.sql
+  tags: mariadb
+
 - name: create mailadmin user (read write)
   mysql_user:
     name: mailadmin
@@ -199,44 +307,22 @@
     login_unix_socket: "{{ mariadb_socket }}"
   tags: mariadb
 
-# NOTE: data injection in DB has been done manually using adminer / mycli
+- name: create /root/.my.cnf config file
+  template:
+    src: ./config/mariadb/my.cnf
+    dest: /root/.my.cnf
+    owner: root
+    group: root
+    mode: 0600
+  tags: mariadb
+
+# Injection des donnees (domains / users / aliases ) fait a la main avec mycli
+# Pour les passwords des users, utiliser la commande:
+# doveadm pw -s BLF-CRYPT
 
 #
 # Postfix
 #
-- name: virtual_mailbox_domains configuration
-  template:
-    src: ./config/postfix/mysql-virtual-mailbox-domains.cf
-    dest: /etc/postfix/mysql-virtual-mailbox-domains.cf
-    owner: root
-    group: postfix
-    mode: 0640
-  notify:
-    - restart postfix
-  tags: postfix
-
-- name: virtual_mailbox_maps configuration
-  template:
-    src: ./config/postfix/mysql-virtual-mailbox-maps.cf
-    dest: /etc/postfix/mysql-virtual-mailbox-maps.cf
-    owner: root
-    group: postfix
-    mode: 0640
-  notify:
-    - restart postfix
-  tags: postfix
-
-- name: virtual_alias_maps configuration
-  template:
-    src: ./config/postfix/mysql-virtual-alias-maps.cf
-    dest: /etc/postfix/mysql-virtual-alias-maps.cf
-    owner: root
-    group: postfix
-    mode: 0640
-  notify:
-    - restart postfix
-  tags: postfix
-
 - name: configure postfix
   template:
     src: ./config/postfix/{{item}}
@@ -247,6 +333,10 @@
   loop:
     - main.cf
     - master.cf
+    - mysql-virtual-mailbox-domains.cf
+    - mysql-virtual-mailbox-maps.cf
+    - mysql-virtual-alias-maps.cf
+    - submission_header_cleanup
   notify:
     - restart postfix
   tags: postfix
@@ -471,7 +561,7 @@
 #
 # Rspamd
 #
-- name: configure rspamd
+- name: configure rspamd (override.d)
   copy:
     src: ./config/rspamd/override.d/
     dest: /etc/rspamd/override.d/
@@ -479,10 +569,15 @@
     - restart rspamd
   tags: rspamd
 
-- name: configure rspamd web interface
+- name: configure rspamd (local.d)
   template:
-    src: ./config/rspamd/local.d/worker-controller.inc
-    dest: /etc/rspamd/local.d/worker-controller.inc
+    src: ./config/rspamd/local.d/{{item}}
+    dest: /etc/rspamd/local.d/{{item}}
+  loop:
+    - worker-controller.inc
+    - worker-proxy.inc
+    - dkim_signing.conf
+    - options.inc
   notify:
     - restart rspamd
   tags: rspamd
@@ -532,14 +627,6 @@
   debug:
     msg: "The DNS line for {{item.domain}} is in file: /var/lib/rspamd/dkim/{{item.domain}}.{{item.selector}}.dns"
   loop: "{{rspamd_dkim_selector_map}}"
-  tags: rspamd
-
-- name: configure rspamd dkim_signing.conf
-  template:
-    src: ./config/rspamd/local.d/dkim_signing.conf
-    dest: /etc/rspamd/local.d/dkim_signing.conf
-  notify:
-    - restart rspamd
   tags: rspamd
 
 - name: add domain in selector map

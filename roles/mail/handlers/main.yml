@@ -19,3 +19,7 @@
   service:
     name: fail2ban
     state: restarted
+- name: restart radicale
+  service:
+    name: radicale
+    state: restarted

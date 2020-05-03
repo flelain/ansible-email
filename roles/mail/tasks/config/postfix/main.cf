@@ -1,7 +1,15 @@
+##
+## Network settings
+##
 myhostname = {{server_name}}
-mynetworks =
+mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
 mail_name = mail server
+#inet_interfaces = 127.0.0.1 {{ansible_eth0.ipv4.address}}
 
+
+##
+## Misc
+##
 # biff is a tool to notify users when new mails are incoming
 # this is useless for us
 biff = no
@@ -21,6 +29,10 @@ compatibility_level = 2
 # Empty alias_map to disable a warning in logs
 alias_maps =
 
+
+##
+## SQL requests
+##
 # On utilise uniquement des virtual domains
 # Voir http://www.postfix.com/VIRTUAL_README.html
 # Et c'est dovecot qui gere les mailboxes
@@ -29,10 +41,10 @@ virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-mailbox-domains.cf
 virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox-maps.cf
 virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-alias-maps.cf
 
-# TLS parameters
-# SMTP = client qui envoit les mails
-# SMTPD = server qui recoit les mails
-smtp_tls_security_level = may
+
+##
+## Inbound SMTP connections
+##
 smtpd_tls_security_level = may
 smtpd_tls_auth_only = yes
 smtpd_tls_key_file = /etc/letsencrypt/live/{{server_name}}/privkey.pem
@@ -47,44 +59,57 @@ smtpd_sasl_authenticated_header = yes
 smtpd_sasl_type = dovecot
 smtpd_sasl_path = private/auth
 
-# SMTP restrictions (block bogus stuff)
-# Force client to be polite
-# and allow only authenticated users
-#smtpd_client_restrictions =
-#  permit_sasl_authenticated,
-#  reject,
 
-# Pour touts les autres restrictions, je ne suis pas sur qu'elles
-# soit necessaires, car la smtpd_client_restrictions semble etre la premiere
-# pour toutes les communications
-#smtpd_helo_required = yes
-#smtpd_helo_restrictions =
-#  permit_sasl_authenticated,
-#  reject,
+##
+## Outbound SMTP connections (Postfix as sender)
+##
+smtp_tls_security_level = may
 
-#smtpd_sender_restrictions =
-#  permit_sasl_authenticated,
-#  reject,
 
+##
+## Server Restrictions for clients, cecipients and relaying
+## (concerning S2S-connections. Mailclient-connections are configured in submission-section in master.cf)
+##
+
+# Conditions in which Postfix works as a relay. (for mail user clients)
+smtpd_relay_restrictions =
+  reject_non_fqdn_recipient,
+  reject_unknown_recipient_domain,
+  permit_mynetworks,
+  reject_unauth_destination,
+
+# Conditions in which Postfix accepts e-mails as recipient (additional to relay conditions)
 # Check user quota before trying to deliver mail
 smtpd_recipient_restrictions =
   reject_unauth_destination,
   check_policy_service unix:private/quota-status,
+
+# Restrictions for all sending foreign servers ("SMTP clients")
+smtpd_client_restrictions =
+  permit_mynetworks,
+  reject_unknown_client_hostname,
+
+# Foreign mail servers must present a valid "HELO"
+smtpd_helo_required = yes
+smtpd_helo_restrictions =
+  permit_mynetworks,
+  reject_invalid_helo_hostname,
+  reject_non_fqdn_helo_hostname,
+  reject_unknown_helo_hostname,
+
+# Block clients, which start sending too early
+smtpd_data_restrictions =
+  reject_unauth_pipelining,
 
 # Disable ETRN command
 # Nobody use that
 smtpd_etrn_restrictions =
   reject,
 
-# DKIM, on utilise opendkim
-# TODO
-#milter_default_action = accept
-#milter_protocol = 6
-#smtpd_milters = inet:127.0.0.1:8891
-#non_smtpd_milters = $smtpd_milters
 
-# Milters
-# rspamd
+##
+## Spam filter and DKIM signatures via Rspamd
+##
 smtpd_milters = inet:127.0.0.1:11332
 non_smtpd_milters = inet:127.0.0.1:11332
-milter_mail_macros = "i {mail_addr} {client_addr} {client_name} {auth_authen}"
+milter_default_action = accept
