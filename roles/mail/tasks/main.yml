@@ -1,4 +1,7 @@
 ---
+- name: update apt
+  apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+
 - name: install packages
   apt:
     name: ['mailutils', 'postfix', 'postfix-mysql', 'certbot', 'dovecot-imapd', 'dovecot-lmtpd', 'dovecot-managesieved', 'dovecot-mysql', 'rspamd', 'pwgen', 'swaks', 'mutt', 'ca-certificates', 'apache2', 'php', 'php-curl', 'php-xml', 'mariadb-server', 'adminer', 'mycli', 'unzip', 'dnsutils', 'radicale', 'ed', 'ccze']
@@ -239,6 +242,7 @@
     - virtual_aliases
     - virtual_domains
     - virtual_users
+    - virtual_transports
   tags: mariadb
 
 - name: check if virtual_aliases table is created
@@ -251,7 +255,7 @@
 
 - name: create virtual_aliases table
   when: mariadb_virtual_aliases.rc != 0
-  command:
+  shell:
     cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' < /tmp/virtual_aliases.sql
   tags: mariadb
 
@@ -265,7 +269,7 @@
 
 - name: create virtual_domains table
   when: mariadb_virtual_domains.rc != 0
-  command:
+  shell:
     cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' < /tmp/virtual_domains.sql
   tags: mariadb
 
@@ -279,8 +283,22 @@
 
 - name: create virtual_users table
   when: mariadb_virtual_users.rc != 0
-  command:
+  shell:
     cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' < /tmp/virtual_users.sql
+  tags: mariadb
+
+- name: check if virtual_transports table is created
+  command:
+    cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' --execute='DESC virtual_transports' mailserver
+  changed_when: false
+  failed_when: false
+  register: mariadb_virtual_transports
+  tags: mariadb
+
+- name: create virtual_transports table
+  when: mariadb_virtual_transports.rc != 0
+  shell:
+    cmd: mariadb -B -s --user='root' --password='{{ mariadb_root_password }}' < /tmp/virtual_transports.sql
   tags: mariadb
 
 - name: create mailadmin user (read write)
@@ -319,6 +337,7 @@
 # Injection des donnees (domains / users / aliases ) fait a la main avec mycli
 # Pour les passwords des users, utiliser la commande:
 # doveadm pw -s BLF-CRYPT
+# TODO: essayer d'automatiser ca
 
 #
 # Postfix
@@ -336,6 +355,7 @@
     - mysql-virtual-mailbox-domains.cf
     - mysql-virtual-mailbox-maps.cf
     - mysql-virtual-alias-maps.cf
+    - mysql-virtual-transports.cf
     - submission_header_cleanup
   notify:
     - restart postfix

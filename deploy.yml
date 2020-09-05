@@ -4,14 +4,19 @@
   connection: local
   roles:
   - {role: 'base', tags: 'base'}
+
 - name: mail
   hosts: localhost
-  vars:
-    server_name: "{{ansible_facts['fqdn']}}"
-    certbot_mail: arnaud.certbot@mailops.fr
   vars_files:
     - /etc/ansible/vars.yml
   connection: local
   roles:
   - {role: 'mail', tags: 'mail'}
 
+- name: nanolist
+  hosts: localhost
+  vars_files:
+    - /etc/ansible/vars.yml
+  connection: local
+  roles:
+  - {role: 'nanolist', tags: 'nanolist'}

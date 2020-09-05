@@ -10,15 +10,15 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 --
--- Table structure for table `virtual_aliases`
+-- Table structure for table `virtual_transports`
 --
 
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
-CREATE TABLE `virtual_aliases` (
-  `source` varchar(150) NOT NULL,
-  `destination` varchar(150) NOT NULL,
-  PRIMARY KEY (`source`)
+CREATE TABLE `virtual_transports` (
+  `domain` varchar(100) NOT NULL,
+  `transport` varchar(200) NOT NULL,
+  PRIMARY KEY (`domain`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

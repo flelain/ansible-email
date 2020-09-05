@@ -2,6 +2,8 @@
 ## Network settings
 ##
 myhostname = {{server_name}}
+# Set an empty mydestination to avoid delivering mails to local users
+mydestination =
 mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
 mail_name = mail server
 #inet_interfaces = 127.0.0.1 {{ansible_eth0.ipv4.address}}
@@ -35,8 +37,14 @@ alias_maps =
 ##
 # On utilise uniquement des virtual domains
 # Voir http://www.postfix.com/VIRTUAL_README.html
-# Et c'est dovecot qui gere les mailboxes
-virtual_transport = lmtp:unix:private/dovecot-lmtp
+# Et c'est dovecot qui gere les mailboxes.
+# Et c'est mailman qui gere les lists
+#
+# Pour dovecot, le transport c'est :
+# lmtp:unix:private/dovecot-lmtp
+# Pour nanolist, c'est nanolist
+virtual_transport = virtual
+transport_maps = mysql:/etc/postfix/mysql-virtual-transports.cf
 virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-mailbox-domains.cf
 virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox-maps.cf
 virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-alias-maps.cf

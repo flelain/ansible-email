@@ -1,0 +1,22 @@
+---
+- name: get nanolist binary
+  get_url:
+    url: https://github.com/arnaudmorin/nanolist/releases/download/v0.0.1/nanolist
+    dest: /usr/local/bin/
+
+- name: set execution mode on binary
+  file:
+    path: /usr/local/bin/nanolist
+    mode: '0755'
+
+- name: configure nanolist
+  template:
+    src: ./config/nanolist.ini
+    dest: /etc/nanolist.ini
+
+- name: make sure log file exists
+  file:
+    path: /var/log/nanolist.log
+    mode: 644
+    owner: vmail
+    group: vmail
