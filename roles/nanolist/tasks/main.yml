@@ -1,7 +1,7 @@
 ---
 - name: get nanolist binary
   get_url:
-    url: https://github.com/arnaudmorin/nanolist/releases/download/v0.0.1/nanolist
+    url: https://github.com/arnaudmorin/nanolist/releases/download/v0.0.2/nanolist
     dest: /usr/local/bin/
 
 - name: set execution mode on binary
@@ -17,6 +17,21 @@
 - name: make sure log file exists
   file:
     path: /var/log/nanolist.log
-    mode: 644
+    mode: 0644
     owner: vmail
     group: vmail
+
+- name: make sure db has correct rights
+  file:
+    path: /var/vmail/nanolist.db
+    mode: 0644
+    owner: vmail
+    group: vmail
+
+# Now to add a new ml
+# nanolist create --name="RMCS" --description="Liste du Radio Model Club Senonais" rmcs@example.fr
+#
+# Also, add the new ml in virtual_users table
+#
+# Finally, add users to the ml
+# nanolist subscribe arnaud@example.fr rmcs@lists.example.fr

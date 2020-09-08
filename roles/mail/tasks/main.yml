@@ -4,7 +4,7 @@
 
 - name: install packages
   apt:
-    name: ['mailutils', 'postfix', 'postfix-mysql', 'certbot', 'dovecot-imapd', 'dovecot-lmtpd', 'dovecot-managesieved', 'dovecot-mysql', 'rspamd', 'pwgen', 'swaks', 'mutt', 'ca-certificates', 'apache2', 'php', 'php-curl', 'php-xml', 'mariadb-server', 'adminer', 'mycli', 'unzip', 'dnsutils', 'radicale', 'ed', 'ccze']
+    name: ['mailutils', 'postfix', 'postfix-mysql', 'certbot', 'dovecot-imapd', 'dovecot-lmtpd', 'dovecot-managesieved', 'dovecot-mysql', 'rspamd', 'pwgen', 'swaks', 'mutt', 'ca-certificates', 'apache2', 'php', 'php-curl', 'php-xml', 'mariadb-server', 'adminer', 'mycli', 'unzip', 'dnsutils', 'radicale', 'ed', 'ccze', 'lnav']
     state: latest
   tags: packages
 
@@ -615,6 +615,7 @@
     remote_src: yes
   tags: rspamd
 
+# DKIM is done through RSPAMD because this is simpler than opendkim
 - name: create dkim dir
   file:
     path: /var/lib/rspamd/dkim
