@@ -12,6 +12,7 @@ rspamd_dkim_selector_map:
 
 # Nanolist variables
 nanolist:
-  address: lists@lists.example.org
-  password: loulou
-  domain: lists.example.org
+  domains:
+    - name: lists.example.org
+      user: lists@lists.example.org
+      password: loulou

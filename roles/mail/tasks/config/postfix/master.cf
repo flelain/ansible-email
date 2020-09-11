@@ -140,5 +140,4 @@ mailman   unix  -       n       n       -       -       pipe
   flags=FR user=list argv=/usr/lib/mailman/bin/postfix-to-mailman.py
   ${nexthop} ${user}
 nanolist  unix  -       n       n       -       -       pipe
-  flags=FR user=vmail argv=/usr/local/bin/nanolist
-  message
+  flags=FR user=vmail argv=/usr/local/bin/nanolist --config /etc/nanolist/${nexthop}.ini message
