@@ -78,7 +78,14 @@
   lineinfile:
     path: /etc/letsencrypt/cli.ini
     regexp: '^post-hook'
-    line: post-hook = systemctl restart postfix ; systemctl restart dovecot ; systemctl restart apache2
+    line: 'post-hook = "systemctl restart postfix ; systemctl restart dovecot ; systemctl restart apache2"'
+  tags: apache2
+
+- name: configure letsencrypt pre-hook
+  lineinfile:
+    path: /etc/letsencrypt/cli.ini
+    regexp: '^pre-hook'
+    line: 'pre-hook = "systemctl stop apache2"'
   tags: apache2
 
 - name: enable apache2 vhost port 443
