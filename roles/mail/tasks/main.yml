@@ -74,18 +74,14 @@
     creates: /etc/letsencrypt/live/{{server_name}}/fullchain.pem
   tags: apache2
 
-- name: configure letsencrypt post-hook
-  lineinfile:
-    path: /etc/letsencrypt/cli.ini
-    regexp: '^post-hook'
-    line: 'post-hook = "systemctl restart postfix ; systemctl restart dovecot ; systemctl restart apache2"'
-  tags: apache2
-
-- name: configure letsencrypt pre-hook
-  lineinfile:
-    path: /etc/letsencrypt/cli.ini
-    regexp: '^pre-hook'
-    line: 'pre-hook = "systemctl stop apache2"'
+- name: create letsencrypt hooks
+  copy:
+    src: ./config/letsencrypt/{{item}}-hook.sh
+    dest: /etc/letsencrypt/renewal-hooks/{{item}}
+    mode: '0755'
+  loop:
+    - pre
+    - post
   tags: apache2
 
 - name: enable apache2 vhost port 443
