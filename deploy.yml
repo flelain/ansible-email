@@ -8,15 +8,15 @@
 - name: mail
   hosts: localhost
   vars_files:
-    - /etc/ansible/vars.yml
+    - ./vars.yml
   connection: local
   roles:
   - {role: 'mail', tags: 'mail'}
 
-- name: nanolist
-  hosts: localhost
-  vars_files:
-    - /etc/ansible/vars.yml
-  connection: local
-  roles:
-  - {role: 'nanolist', tags: 'nanolist'}
+#- name: nanolist
+#  hosts: localhost
+#  vars_files:
+#    - /etc/ansible/vars.yml
+#  connection: local
+#  roles:
+#  - {role: 'nanolist', tags: 'nanolist'}

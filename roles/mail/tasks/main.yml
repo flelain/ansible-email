@@ -109,13 +109,13 @@
 #
 - name: download rainloop artifact
   get_url:
-    url: https://www.rainloop.net/repository/webmail/rainloop-community-latest.zip
+    url: https://www.rainloop.net/repository/webmail/rainloop-latest.zip
     dest: /root/
   tags: rainloop
 
 - name: unzip rainloop artifact
   unarchive:
-    src: /root/rainloop-community-latest.zip
+    src: /root/rainloop-latest.zip
     dest: /var/www/{{server_name}}
     remote_src: yes
     owner: www-data
@@ -130,56 +130,56 @@
 #
 # Radicale
 #
-- name: configure radicale
-  ini_file:
-    path: /etc/radicale/config
-    section: "{{item.section}}"
-    option: "{{item.option}}"
-    value: "{{item.value}}"
-  with_items:
-    - { section: "server", option: "daemon", value: "True" }
-    - { section: "server", option: "pid", value: "/var/run/radicale.pid" }
-    - { section: "auth", option: "type", value: "http_x_remote_user" }
-  notify:
-    - restart radicale
-  tags: radicale
-
+#- name: configure radicale
+#  ini_file:
+#    path: /etc/radicale/config
+#    section: "{{item.section}}"
+#    option: "{{item.option}}"
+#    value: "{{item.value}}"
+#  with_items:
+#    - { section: "server", option: "daemon", value: "True" }
+#    - { section: "server", option: "pid", value: "/var/run/radicale.pid" }
+#    - { section: "auth", option: "type", value: "http_x_remote_user" }
+#  notify:
+#    - restart radicale
+#  tags: radicale
 #
-# InfCloud (web interface for caldav/carddav)
+##
+## InfCloud (web interface for caldav/carddav)
+##
+#- name: download infcloud artifact
+#  get_url:
+#    url: https://www.inf-it.com/InfCloud_0.13.1.zip
+#    dest: /root/
+#  tags: infcloud
 #
-- name: download infcloud artifact
-  get_url:
-    url: https://www.inf-it.com/InfCloud_0.13.1.zip
-    dest: /root/
-  tags: infcloud
-
-- name: unzip infcloud artifact
-  unarchive:
-    src: /root/InfCloud_0.13.1.zip
-    dest: /var/www/{{server_name}}
-    remote_src: yes
-    owner: www-data
-    group: www-data
-  tags: infcloud
-
-- name: create a symbolic link cal/ to infcloud/
-  file:
-    src: /var/www/{{server_name}}/infcloud
-    dest: /var/www/{{server_name}}/cal
-    owner: www-data
-    group: www-data
-    state: link
-  tags: infcloud
-
-- name: configure infcloud
-  lineinfile:
-    path: /var/www/{{server_name}}/infcloud/config.js
-    regexp: "{{item.regexp}}"
-    line: "{{item.line}}"
-  loop:
-    - { regexp: "^		'/caldav.php/',$", line: "		'/radicale/'," }
-  tags: infcloud
-
+#- name: unzip infcloud artifact
+#  unarchive:
+#    src: /root/InfCloud_0.13.1.zip
+#    dest: /var/www/{{server_name}}
+#    remote_src: yes
+#    owner: www-data
+#    group: www-data
+#  tags: infcloud
+#
+#- name: create a symbolic link cal/ to infcloud/
+#  file:
+#    src: /var/www/{{server_name}}/infcloud
+#    dest: /var/www/{{server_name}}/cal
+#    owner: www-data
+#    group: www-data
+#    state: link
+#  tags: infcloud
+#
+#- name: configure infcloud
+#  lineinfile:
+#    path: /var/www/{{server_name}}/infcloud/config.js
+#    regexp: "{{item.regexp}}"
+#    line: "{{item.line}}"
+#  loop:
+#    - { regexp: "^		'/caldav.php/',$", line: "		'/radicale/'," }
+#  tags: infcloud
+#
 #
 # MariaDB
 #
@@ -444,68 +444,68 @@
   notify: restart dovecot
   tags: dovecot
 
-- name: enable sieve plugin in dovecot
-  blockinfile:
-    path: /etc/dovecot/conf.d/20-lmtp.conf
-    insertafter: "protocol lmtp {"
-    block: |
-      mail_plugins = $mail_plugins sieve
-  notify: restart dovecot
-  tags: dovecot
-
-- name: enable imapsieve plugins to learn from spam
-  blockinfile:
-    path: /etc/dovecot/conf.d/90-sieve.conf
-    insertafter: "plugin {"
-    block: |
-      # From elsewhere to Junk folder
-      imapsieve_mailbox1_name = Junk
-      imapsieve_mailbox1_causes = COPY
-      imapsieve_mailbox1_before = file:/etc/dovecot/sieve/learn-spam.sieve
-      # From Junk folder to elsewhere
-      imapsieve_mailbox2_name = *
-      imapsieve_mailbox2_from = Junk
-      imapsieve_mailbox2_causes = COPY
-      imapsieve_mailbox2_before = file:/etc/dovecot/sieve/learn-ham.sieve
-      sieve_pipe_bin_dir = /etc/dovecot/sieve
-      sieve_global_extensions = +vnd.dovecot.pipe
-      sieve_plugins = sieve_imapsieve sieve_extprograms
-  notify: restart dovecot
-  tags: dovecot
-
-- name: creates sieve folders
-  copy:
-    src: ./config/dovecot/{{item}}
-    dest: /etc/dovecot/
-    mode: 0700
-    owner: vmail
-    group: vmail
-  loop:
-    - sieve
-    - sieve-after
-  register: result
-  tags: dovecot
-
-- name: temporary restart dovecot to compile sieve scripts
-  when: result.changed
-  service:
-    name: dovecot
-    state: restarted
-  tags: dovecot
-
-- name: compile sieve scripts
-  when: result.changed
-  shell:
-    cmd: find /etc/dovecot/ -name '*.sieve' -exec sievec {} \;
-  notify: restart dovecot
-  tags: dovecot
-
-- name: set correct mode for compiled sieve scripts
-  when: result.changed
-  shell:
-    cmd: find /etc/dovecot/ -name '*.svbin' -exec chown vmail:vmail {} \;
-  notify: restart dovecot
-  tags: dovecot
+  #- name: enable sieve plugin in dovecot
+  #  blockinfile:
+  #    path: /etc/dovecot/conf.d/20-lmtp.conf
+  #    insertafter: "protocol lmtp {"
+  #    block: |
+  #      mail_plugins = $mail_plugins sieve
+  #  notify: restart dovecot
+  #  tags: dovecot
+  #
+  #- name: enable imapsieve plugins to learn from spam
+  #  blockinfile:
+  #    path: /etc/dovecot/conf.d/90-sieve.conf
+  #    insertafter: "plugin {"
+  #    block: |
+  #      # From elsewhere to Junk folder
+  #      imapsieve_mailbox1_name = Junk
+  #      imapsieve_mailbox1_causes = COPY
+  #      imapsieve_mailbox1_before = file:/etc/dovecot/sieve/learn-spam.sieve
+  #      # From Junk folder to elsewhere
+  #      imapsieve_mailbox2_name = *
+  #      imapsieve_mailbox2_from = Junk
+  #      imapsieve_mailbox2_causes = COPY
+  #      imapsieve_mailbox2_before = file:/etc/dovecot/sieve/learn-ham.sieve
+  #      sieve_pipe_bin_dir = /etc/dovecot/sieve
+  #      sieve_global_extensions = +vnd.dovecot.pipe
+  #      sieve_plugins = sieve_imapsieve sieve_extprograms
+  #  notify: restart dovecot
+  #  tags: dovecot
+  #
+  #- name: creates sieve folders
+  #  copy:
+  #    src: ./config/dovecot/{{item}}
+  #    dest: /etc/dovecot/
+  #    mode: 0700
+  #    owner: vmail
+  #    group: vmail
+  #  loop:
+  #    - sieve
+  #    - sieve-after
+  #  register: result
+  #  tags: dovecot
+  #
+  #- name: temporary restart dovecot to compile sieve scripts
+  #  when: result.changed
+  #  service:
+  #    name: dovecot
+  #    state: restarted
+  #  tags: dovecot
+  #
+  #- name: compile sieve scripts
+  #  when: result.changed
+  #  shell:
+  #    cmd: find /etc/dovecot/ -name '*.sieve' -exec sievec {} \;
+  #  notify: restart dovecot
+  #  tags: dovecot
+  #
+  #- name: set correct mode for compiled sieve scripts
+  #  when: result.changed
+  #  shell:
+  #    cmd: find /etc/dovecot/ -name '*.svbin' -exec chown vmail:vmail {} \;
+  #  notify: restart dovecot
+  #  tags: dovecot
 
 - name: configure dovecot quotas plugin
   blockinfile:
